@@ -1,0 +1,199 @@
+#!/bin/bash
+
+#
+# Autor: Samuel Viveiros Gomes
+# Descrição: Script para corrigir a resolução de monitores que utilizam adaptador DVI.
+# Versão: 0.2.0
+# Data: Quarta-feira, 18 de Abril de 2018 -- Palmas - TO
+#
+# História:
+#     0.2.0   Foi acrescentada opção de linha de comando [-g | --gen-config]
+#     0.1.0   Lançamento.
+#
+
+script_ver="0.2.0"
+script_name=$0
+monitor_conf="10-monitor.conf"
+device_conf="20-device.conf"
+xorg_dir="/usr/share/X11/xorg.conf.d"
+basic_modeline='Modeline "1024x768_60.00"   63.50  1024 1072 1176 1328  768 771 775 798 -hsync +vsync'
+new_modeline=""
+
+sub_generate_config()
+{
+	if [ -z "$1" ] || [ -z "$2" ]; then
+		return 1
+	fi
+
+	echo 'Section "Monitor"' > $1/$monitor_conf
+	echo '	Identifier "DVI"' >> $1/$monitor_conf
+	echo "	$2" >> $1/$monitor_conf
+	echo '	Option "RightOf" "VGA"' >> $1/$monitor_conf
+	echo 'EndSection' >> $1/$monitor_conf
+	echo ' ' >> $1/$monitor_conf
+	echo 'Section "Monitor"' >> $1/$monitor_conf
+	echo '	Identifier	"VGA"' >> $1/$monitor_conf
+	echo '	Option "LeftOf" "DVI"' >> $1/$monitor_conf
+	echo 'EndSection' >> $1/$monitor_conf
+
+	echo 'Section "Device"' > $1/$device_conf
+	echo '	Identifier "Monitor"' >> $1/$device_conf
+	echo '	Driver "nouveau"' >> $1/$device_conf
+	echo '	Option "Monitor-DVI-I-1" "DVI"' >> $1/$device_conf
+	echo '	Option "Monitor-VGA-1" "VGA"' >> $1/$device_conf
+	echo 'EndSection' >> $1/$device_conf
+	echo ' ' >> $1/$device_conf
+
+	return 0	
+}
+
+sub_create_modeline()
+{
+	if [ ! $# -eq 2 ]; then
+		return 1
+	fi
+
+	if [ ! -e "/usr/bin/cvt" ]; then
+		return 1
+	fi
+
+	#new_modeline=`cvt $1 $2 | grep Modeline`
+	new_modeline=`/usr/bin/cvt $1 $2 | grep Modeline`
+	return $?
+}
+
+sub_fix()
+{
+	echo "[*] Criando a Modeline ..."
+	if [ ! $# -eq 2 ]; then
+		echo "[-] Não foi possível criar a Modeline, pois faltam parâmetros."
+		return 1
+	fi
+
+	if [ ! -e "$xorg_dir" ] || [ ! -w "$xorg_dir" ]; then
+		echo "[-] Não é possível gravar no diretório $xorg_dir. ( Executando como sudo? )."
+		return 1
+	fi
+
+	/bin/rm -f $xorg_dir/$monitor_conf >/dev/null 2>&1
+	/bin/rm -f $xorg_dir/$device_conf >/dev/null 2>&1
+	
+	sub_create_modeline $1 $2
+	if [ ! $? -eq 0 ] || [ -z "$new_modeline" ]; then
+		echo "[-] Não foi possível criar a Modeline, pois o cvt falhou"
+		return 1
+	fi
+
+	sub_generate_config "$xorg_dir" "$new_modeline"
+
+	return 0
+}
+
+sub_undo()
+{
+	echo "[+] Removendo arquivos ..."
+	/bin/rm -f $xorg_dir/$monitor_conf >/dev/null 2>&1
+	/bin/rm -f $xorg_dir/$device_conf >/dev/null 2>&1
+	return 0
+}
+
+sub_print_about()
+{
+	echo
+	echo "Fixdvi $script_ver -- Copyright (c) 2018 MPETO"
+	echo
+	return 0
+}
+
+sub_print_usage()
+{
+	echo
+	echo "Uso: $script_name [OPÇÃO]"
+	echo "Tenta corrigir a resolução de vídeo do monitor VGA que utiliza adaptador DVI."
+	echo "  -f, --fix-dvi      Tenta corrigir a resolução."
+	echo "                     Ex.: $script_name -f 1920 1080"
+	echo "  -u, --undo         Desfaz as alterações."
+	echo "  -g, --gen-config   Gerar os arquivos 10-monitor.conf e 20-device.conf"
+	echo "                     Ex.: $script_name -g /diretorio/de/destino"
+	echo "  -v, --version      Informações da versão e do autor."
+	echo "  -h, --help         Exibe esta ajuda."
+	echo
+	return 0
+}
+
+sub_parser_params()
+{
+	case "$1" in
+		"-f"|"--fix-dvi")
+
+			if [ -z $2 ] || [ -z $3 ]; then
+				echo "$script_name: faltam parâmetros para a opção '$1'"
+				echo "Tente '$script_name --help' para mais informações."
+				return 1
+			fi
+
+			sub_fix $2 $3
+
+			if [ ! $? -eq 0 ]; then
+				return 1
+			else
+				echo "[+] TUDO OK!"
+				echo "[+] Reinicie o sistema operacional para aplicar as configurações."
+			fi
+			;;
+
+		"-u"|"--undo")
+			sub_undo
+			;;
+
+		"-g"|"--gen-config")
+
+			if [ -z "$2" ]; then
+				echo "$script_name: faltam parâmetros para a opção '$1'"
+				echo "Tente '$script_name --help' para mais informações."
+				return 1
+			fi
+
+			if [ ! -e "$2" ] || [ ! -w "$2" ] || [ ! -d "$2" ]; then
+				echo "[-] Não foi possível gerar os arquivos."
+				return 1
+			fi
+
+			sub_generate_config "$2" "$basic_modeline"
+
+			if [ ! $? -eq 0 ]; then
+				return 1
+			else
+				echo "[+] Feito!"
+			fi
+			;;
+
+		"-v"|"--version")
+			sub_print_about
+			;;
+
+		"-h"|"--help")
+			sub_print_usage
+			;;
+
+		*) 
+			echo "$script_name: opção '$1' inválida"
+			echo "Tente '$script_name --help' para mais informações."
+			return 1
+			;;
+	esac
+
+	return 0
+}
+
+if [ $# -lt 1 ]; then
+	sub_print_usage
+	exit 1
+else
+	sub_parser_params $1 $2 $3
+	if [ ! $? -eq 0 ]; then
+		exit 1
+	fi
+	exit 0
+fi
+
